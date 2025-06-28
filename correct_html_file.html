@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pattern Learning Assistant - Options Trading MVP</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0e7ff 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .controls {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .chart-container {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        .education-panel {
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            border: 2px solid #f59e0b;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+        }
+        .breakout-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 15px;
+        }
+        .breakout-card {
+            background: #f8fafc;
+            padding: 20px;
+            border-radius: 8px;
+            border: 2px solid #22c55e;
+            cursor: pointer;
+        }
+        .feedback-section {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            text-align: center;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            margin: 0 5px;
+        }
+        .btn-success { background: #22c55e; color: white; }
+        .btn-warning { background: #f59e0b; color: white; }
+        .btn-danger { background: #ef4444; color: white; }
+        .btn-primary { background: #3b82f6; color: white; }
+        
+        select, input {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #d1d5db;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // Mock data generation
+        const generateMockData = (symbol) => {
+            const data = [];
+            const startDate = new Date('2024-01-01');
+            let price = symbol === 'AAPL' ? 150 : symbol === 'TSLA' ? 200 : 100;
+            
+            for (let i = 0; i < 100; i++) {
+                const date = new Date(startDate);
+                date.setDate(date.getDate() + i);
+                
+                // Simulate breakout pattern around day 70
+                const trend = i > 70 ? 1.002 : 1.0001;
+                const volatility = 0.02;
+                const change = (Math.random() - 0.5) * volatility;
+                
+                price = price * trend + (price * change);
+                
+                const open = price * (1 + (Math.random() - 0.5) * 0.01);
+                const high = Math.max(open, price) * (1 + Math.random() * 0.02);
+                const low = Math.min(open, price) * (1 - Math.random() * 0.02);
+                
+                data.push({
+                    date: date.toISOString().split('T')[0],
+                    open: parseFloat(open.toFixed(2)),
+                    high: parseFloat(high.toFixed(2)),
+                    low: parseFloat(low.toFixed(2)),
+                    close: parseFloat(price.toFixed(2)),
+                    volume: Math.floor(Math.random() * 1000000) + 500000
+                });
+            }
+            
+            return data;
+        };
+
+        // Breakout detection
+        const detectBreakouts = (data) => {
+            if (data.length < 20) return [];
+            
+            const breakouts = [];
+            
+            for (let i = 20; i < data.length - 5; i++) {
+                const lookbackPeriod = data.slice(i - 20, i);
+                const resistance = Math.max(...lookbackPeriod.map(d => d.high));
+                
+                const currentBar = data[i];
+                const avgVolume = lookbackPeriod.reduce((sum, d) => sum + d.volume, 0) / 20;
+                
+                if (currentBar.close > resistance && currentBar.volume > avgVolume * 1.5) {
+                    const confirmationBars = data.slice(i + 1, i + 4);
+                    const confirmationStrength = confirmationBars.filter(d => d.close > resistance).length;
+                    
+                    if (confirmationStrength >= 2) {
+                        breakouts.push({
+                            date: currentBar.date,
+                            price: currentBar.close,
+                            resistance: resistance,
+                            strength: confirmationStrength / 3,
+                            volume: currentBar.volume,
+                            avgVolume: avgVolume,
+                            index: i
+                        });
+                    }
+                }
+            }
+            
+            return breakouts;
+        };
+
+        // D3 Chart Component
+        const createChart = (data, breakouts, containerId) => {
+            // Clear previous chart
+            d3.select(`#${containerId}`).selectAll("*").remove();
+            
+            const margin = {top: 20, right: 30, bottom: 40, left: 50};
+            const width = 800 - margin.left - margin.right;
+            const height = 400 - margin.top - margin.bottom;
+            
+            const svg = d3.select(`#${containerId}`)
+                .append("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom);
+                
+            const g = svg.append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+            
+            // Scales
+            const xScale = d3.scaleTime()
+                .domain(d3.extent(data, d => new Date(d.date)))
+                .range([0, width]);
+                
+            const yScale = d3.scaleLinear()
+                .domain(d3.extent(data, d => Math.max(d.high, d.low)))
+                .range([height, 0]);
+            
+            // Axes
+            g.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(xScale));
+                
+            g.append("g")
+                .call(d3.axisLeft(yScale));
+            
+            // Candlesticks
+            data.forEach(d => {
+                const x = xScale(new Date(d.date));
+                const color = d.close >= d.open ? "#22c55e" : "#ef4444";
+                
+                // High-low line
+                g.append("line")
+                    .attr("x1", x)
+                    .attr("x2", x)
+                    .attr("y1", yScale(d.high))
+                    .attr("y2", yScale(d.low))
+                    .attr("stroke", color)
+                    .attr("stroke-width", 1);
+                
+                // Open-close body
+                g.append("rect")
+                    .attr("x", x - 2)
+                    .attr("y", yScale(Math.max(d.open, d.close)))
+                    .attr("width", 4)
+                    .attr("height", Math.abs(yScale(d.open) - yScale(d.close)))
+                    .attr("fill", color);
+            });
+            
+            // Resistance lines
+            breakouts.forEach(breakout => {
+                g.append("line")
+                    .attr("x1", 0)
+                    .attr("x2", width)
+                    .attr("y1", yScale(breakout.resistance))
+                    .attr("y2", yScale(breakout.resistance))
+                    .attr("stroke", "#fbbf24")
+                    .attr("stroke-width", 2)
+                    .attr("stroke-dasharray", "5,5")
+                    .attr("opacity", 0.8);
+            });
+            
+            // Breakout points
+            breakouts.forEach(breakout => {
+                g.append("circle")
+                    .attr("cx", xScale(new Date(breakout.date)))
+                    .attr("cy", yScale(breakout.price))
+                    .attr("r", 6)
+                    .attr("fill", "#22c55e")
+                    .attr("stroke", "white")
+                    .attr("stroke-width", 2);
+                
+                // Annotation
+                g.append("text")
+                    .attr("x", xScale(new Date(breakout.date)))
+                    .attr("y", yScale(breakout.price) - 15)
+                    .attr("text-anchor", "middle")
+                    .attr("fill", "#059669")
+                    .attr("font-size", "12px")
+                    .attr("font-weight", "bold")
+                    .text(`📈 BREAKOUT! ${Math.round(breakout.strength * 100)}%`);
+            });
+        };
+
+        // Main App Component
+        const App = () => {
+            const [selectedStock, setSelectedStock] = React.useState('AAPL');
+            const [showEducation, setShowEducation] = React.useState(false);
+            const [accountSize, setAccountSize] = React.useState(10000);
+            const [feedback, setFeedback] = React.useState('');
+            
+            const data = React.useMemo(() => generateMockData(selectedStock), [selectedStock]);
+            const breakouts = React.useMemo(() => detectBreakouts(data), [data]);
+            
+            React.useEffect(() => {
+                createChart(data, breakouts, 'chart');
+            }, [data, breakouts]);
+            
+            const calculatePositionSize = (breakout) => {
+                const riskPercentage = 0.02;
+                const riskAmount = accountSize * riskPercentage;
+                const stopLoss = breakout.resistance * 0.95;
+                const riskPerShare = breakout.price - stopLoss;
+                const shares = Math.floor(riskAmount / riskPerShare);
+                const positionValue = shares * breakout.price;
+                
+                return {
+                    shares,
+                    positionValue,
+                    riskAmount,
+                    stopLoss,
+                    maxLoss: shares * riskPerShare
+                };
+            };
+            
+            const handleFeedback = (rating) => {
+                setFeedback(rating);
+                alert(`Thank you for your feedback: ${rating}! We're collecting responses to improve the tool.`);
+            };
+            
+            return (
+                <div className="container">
+                    <div className="header">
+                        <h1 style={{fontSize: '2.5em', margin: '0 0 10px 0', color: '#1e293b'}}>
+                            📈 Pattern Learning Assistant
+                        </h1>
+                        <p style={{fontSize: '1.2em', color: '#64748b', margin: 0}}>
+                            Learn to identify profitable breakout patterns with visual education
+                        </p>
+                    </div>
+                    
+                    <div className="controls">
+                        <div>
+                            <label style={{fontWeight: '600', marginRight: '10px'}}>Stock Symbol:</label>
+                            <select value={selectedStock} onChange={(e) => setSelectedStock(e.target.value)}>
+                                <option value="AAPL">AAPL - Apple Inc.</option>
+                                <option value="TSLA">TSLA - Tesla Inc.</option>
+                                <option value="NVDA">NVDA - NVIDIA Corp.</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label style={{fontWeight: '600', marginRight: '10px'}}>Account Size:</label>
+                            <input 
+                                type="number" 
+                                value={accountSize}
+                                onChange={(e) => setAccountSize(parseInt(e.target.value))}
+                                style={{width: '120px'}}
+                            />
+                        </div>
+                        
+                        <button
+                            className={`btn ${showEducation ? 'btn-success' : 'btn-primary'}`}
+                            onClick={() => setShowEducation(!showEducation)}
+                        >
+                            {showEducation ? '✅ Education Mode' : '🎓 Learn Patterns'}
+                        </button>
+                    </div>
+                    
+                    <div className="chart-container">
+                        <h3 style={{margin: '0 0 15px 0'}}>
+                            {selectedStock} - Pattern Learning View
+                        </h3>
+                        <p style={{color: '#64748b', margin: '0 0 15px 0'}}>
+                            Educational overlays show breakout patterns and key levels
+                        </p>
+                        <div id="chart"></div>
+                    </div>
+                    
+                    {showEducation && (
+                        <div className="education-panel">
+                            <h3 style={{margin: '0 0 15px 0', color: '#92400e'}}>
+                                🎓 Pattern Education: Breakout Recognition
+                            </h3>
+                            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
+                                <div>
+                                    <h4 style={{color: '#92400e', marginBottom: '10px'}}>What You're Seeing:</h4>
+                                    <p style={{margin: '0 0 10px 0'}}>
+                                        • <strong>Yellow dashed lines:</strong> Resistance levels (previous highs)
+                                    </p>
+                                    <p style={{margin: '0 0 10px 0'}}>
+                                        • <strong>Green circles:</strong> Confirmed breakout points
+                                    </p>
+                                    <p style={{margin: '0'}}>
+                                        • <strong>Green/Red bars:</strong> Price movement (up/down days)
+                                    </p>
+                                </div>
+                                <div>
+                                    <h4 style={{color: '#92400e', marginBottom: '10px'}}>Why This Works:</h4>
+                                    <p style={{margin: '0 0 10px 0'}}>
+                                        When price breaks above resistance with high volume, it often continues higher
+                                    </p>
+                                    <p style={{margin: '0'}}>
+                                        This creates opportunities for profitable options trades
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {breakouts.length > 0 && (
+                        <div style={{background: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)'}}>
+                            <h3 style={{margin: '0 0 20px 0'}}>🎯 Detected Breakout Patterns</h3>
+                            <div className="breakout-grid">
+                                {breakouts.slice(0, 3).map((breakout, index) => {
+                                    const position = calculatePositionSize(breakout);
+                                    return (
+                                        <div key={index} className="breakout-card">
+                                            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
+                                                <strong style={{color: '#059669'}}>Breakout #{index + 1}</strong>
+                                                <span style={{
+                                                    background: '#22c55e',
+                                                    color: 'white',
+                                                    padding: '4px 8px',
+                                                    borderRadius: '4px',
+                                                    fontSize: '12px'
+                                                }}>
+                                                    {Math.round(breakout.strength * 100)}% Strong
+                                                </span>
+                                            </div>
+                                            
+                                            <p style={{margin: '5px 0', fontSize: '14px'}}>
+                                                <strong>Date:</strong> {breakout.date}
+                                            </p>
+                                            <p style={{margin: '5px 0', fontSize: '14px'}}>
+                                                <strong>Breakout Price:</strong> ${breakout.price}
+                                            </p>
+                                            <p style={{margin: '5px 0', fontSize: '14px'}}>
+                                                <strong>Resistance:</strong> ${breakout.resistance.toFixed(2)}
+                                            </p>
+                                            
+                                            <div style={{
+                                                background: '#e0f2fe',
+                                                padding: '10px',
+                                                borderRadius: '6px',
+                                                marginTop: '10px',
+                                                fontSize: '12px'
+                                            }}>
+                                                <p style={{margin: '0 0 5px 0', fontWeight: '600'}}>💡 Smart Position Sizing:</p>
+                                                <p style={{margin: '0'}}>
+                                                    Recommended: {position.shares} shares (${position.positionValue.toLocaleString()})
+                                                </p>
+                                                <p style={{margin: '0'}}>
+                                                    Max Risk: ${position.maxLoss.toFixed(0)} (2% of account)
+                                                </p>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+                    
+                    <div className="feedback-section">
+                        <h3 style={{margin: '0 0 15px 0'}}>💬 Quick Feedback</h3>
+                        <p style={{marginBottom: '15px'}}>Does this help you understand breakout patterns better?</p>
+                        <div>
+                            <button className="btn btn-success" onClick={() => handleFeedback('Very Helpful')}>
+                                👍 Very Helpful
+                            </button>
+                            <button className="btn btn-warning" onClick={() => handleFeedback('Somewhat Helpful')}>
+                                🤔 Somewhat Helpful
+                            </button>
+                            <button className="btn btn-danger" onClick={() => handleFeedback('Not Helpful')}>
+                                ❌ Not Helpful
+                            </button>
+                        </div>
+                        {feedback && (
+                            <p style={{marginTop: '15px', color: '#059669', fontWeight: '600'}}>
+                                Thank you for rating this: {feedback}
+                            </p>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
