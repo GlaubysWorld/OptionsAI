@@ -11,8 +11,10 @@ table.
 2. Copy `.env.example` to `.env` and fill in:
    - `PLAID_CLIENT_ID`, `PLAID_SECRET` (sandbox)
    - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-3. Apply the schema in `supabase/schema.sql` to your Supabase project.
-4. Start the server: `npm start`
+3. Apply the migrations in `supabase/migrations/` to your Supabase project
+   (`supabase db push` or pasting them into the SQL editor in order).
+4. Build and start the server: `npm run build && npm start` (or `npm run dev`
+   for watch mode).
 
 > Sandbox note: Plaid sandbox enforces a host allowlist for some accounts.
 > If `linkTokenCreate` returns `403 Host not in allowlist`, add the calling
@@ -59,8 +61,19 @@ Response: `{ "count": <n>, "holdings": [...], "accounts": [...] }`
 
 ## Files
 
-- `src/plaidClient.js` — Plaid SDK client (sandbox by default)
-- `src/supabaseClient.js` — Supabase service-role client (lazy)
-- `src/plaidService.js` — `createLinkToken`, `exchangePublicToken`, `syncHoldings*`
-- `src/server.js` — Express endpoints
-- `supabase/schema.sql` — `accounts` and `holdings` tables
+- `src/plaidClient.ts` — Plaid SDK client (sandbox by default)
+- `src/supabaseClient.ts` — Supabase service-role client (lazy)
+- `src/plaidService.ts` — `createLinkToken`, `exchangePublicToken`, `syncHoldings*`
+- `src/server.ts` — Express endpoints
+- `supabase/migrations/20260419000000_initial_schema.sql` — `accounts` and
+  `holdings` tables, with RLS enabled and column-level grants that keep
+  `plaid_access_token` readable only by the service role
+- `tsconfig.json` — TypeScript config (NodeNext, strict)
+
+## Security notes
+
+- `plaid_access_token` is protected by both row-level security and a
+  column-level `REVOKE` from `anon`/`authenticated`. Only the service-role
+  key (used server-side) can read it.
+- The service-role key must never be exposed to the browser. The Express
+  server is the only intended consumer.
