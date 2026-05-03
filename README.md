@@ -1,9 +1,13 @@
 # OptionsAI — Plaid Investment Integration
 
-Wires Plaid Link (Investments product) to Supabase. The server creates a Link
-token, exchanges the public token for an access token, persists the access
-token to the `accounts` table, and syncs investment holdings to the `holdings`
-table.
+Wires Plaid Link (Investments product) into the existing OptionsAI Supabase
+schema. The server creates a Link token, exchanges the public token for an
+access token, persists the access token onto the `accounts` table, and syncs
+investment holdings into the `holdings` table.
+
+This integration sits on top of the platform's pre-existing `initial_schema`
+migration. It does not redefine `accounts` / `holdings`; it only adds the
+Plaid-specific columns and locks the access token down at the column level.
 
 ## Setup
 
@@ -65,15 +69,59 @@ Response: `{ "count": <n>, "holdings": [...], "accounts": [...] }`
 - `src/supabaseClient.ts` — Supabase service-role client (lazy)
 - `src/plaidService.ts` — `createLinkToken`, `exchangePublicToken`, `syncHoldings*`
 - `src/server.ts` — Express endpoints
-- `supabase/migrations/20260419000000_initial_schema.sql` — `accounts` and
-  `holdings` tables, with RLS enabled and column-level grants that keep
-  `plaid_access_token` readable only by the service role
+- `supabase/migrations/20260502000000_plaid_investment_integration.sql` —
+  additive migration that adds `plaid_item_id` / `plaid_access_token` to the
+  existing `accounts` table and revokes `select(plaid_access_token)` from
+  `anon`/`authenticated`
 - `tsconfig.json` — TypeScript config (NodeNext, strict)
+
+## Field mapping
+
+`accounts` (per row, via `accountsGet`):
+
+| Schema column        | Source                                                         |
+| -------------------- | -------------------------------------------------------------- |
+| `user_id`            | request body (`auth.users.id`)                                 |
+| `plaid_account_id`   | Plaid `account.account_id`                                     |
+| `plaid_item_id`      | Plaid `item.item_id`                                           |
+| `plaid_access_token` | exchange response (service-role-only column)                   |
+| `institution_name`   | `institutionsGetById`, falls back to `"Unknown Institution"`   |
+| `account_name`       | `account.name` → `account.official_name` → `"Account"`         |
+| `account_type`       | mapped from `account.subtype` to schema enum                   |
+| `currency`           | `account.balances.iso_currency_code`, defaults to `USD`        |
+| `is_active`          | `true`                                                         |
+| `synced_at`          | `now()`                                                        |
+
+`holdings` (per row, via `investments/holdings/get`):
+
+| Schema column          | Source                                                 |
+| ---------------------- | ------------------------------------------------------ |
+| `user_id`, `account_id`| looked up from existing `accounts` row by Plaid IDs    |
+| `symbol`               | `security.ticker_symbol` → `cusip` → `isin` → id       |
+| `security_name`        | `security.name`                                        |
+| `asset_class`          | mapped from `security.type` to schema enum             |
+| `quantity`             | `holding.quantity`                                     |
+| `cost_basis`           | `holding.cost_basis`                                   |
+| `cost_basis_per_share` | `cost_basis / quantity` (when both > 0)                |
+| `current_price`        | `holding.institution_price`                            |
+| `current_value`        | `holding.institution_value`                            |
+| `unrealized_pnl`       | `current_value - cost_basis` (when both present)       |
+| `unrealized_pnl_pct`   | `unrealized_pnl / cost_basis * 100`                    |
+| `last_price_at`        | `holding.institution_price_as_of`                      |
+
+Holdings are upserted by the schema's `(account_id, symbol)` unique key.
 
 ## Security notes
 
-- `plaid_access_token` is protected by both row-level security and a
-  column-level `REVOKE` from `anon`/`authenticated`. Only the service-role
-  key (used server-side) can read it.
+- `plaid_access_token` is protected by row-level security on the row *and* a
+  column-level `REVOKE select` from `anon`/`authenticated`, so it never
+  reaches the browser even for the row's owner. Only the `service_role` key
+  (used server-side) can read it.
 - The service-role key must never be exposed to the browser. The Express
   server is the only intended consumer.
+
+## Known limitations
+
+- The sync is additive: holdings that disappear from Plaid (e.g. a sold
+  position) are not removed from the `holdings` table. A subsequent pass to
+  reconcile deletions can be added separately.

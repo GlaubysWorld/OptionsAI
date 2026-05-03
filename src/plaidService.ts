@@ -1,4 +1,5 @@
 import {
+    AccountSubtype,
     CountryCode,
     LinkTokenCreateRequest,
     LinkTokenCreateResponse,
@@ -10,38 +11,35 @@ import { supabase } from './supabaseClient.js';
 interface AccountRow {
     id: string;
     user_id: string;
-    plaid_item_id: string;
-    plaid_account_id: string;
-    plaid_access_token: string;
-    institution_id: string | null;
-    institution_name: string | null;
-    name: string | null;
-    official_name: string | null;
-    mask: string | null;
-    type: string | null;
-    subtype: string | null;
+    plaid_account_id: string | null;
+    plaid_item_id: string | null;
+    institution_name: string;
+    account_name: string;
+    account_type: string;
+    currency: string;
+    is_active: boolean;
+    synced_at: string | null;
     created_at: string;
     updated_at: string;
 }
 
 interface HoldingRow {
     id: string;
+    user_id: string;
     account_id: string;
-    plaid_account_id: string;
-    security_id: string;
-    ticker_symbol: string | null;
-    name: string | null;
-    type: string | null;
-    cusip: string | null;
-    isin: string | null;
-    quantity: number | null;
-    institution_price: number | null;
-    institution_price_as_of: string | null;
-    institution_value: number | null;
+    symbol: string;
+    security_name: string | null;
+    asset_class: string;
+    quantity: number;
     cost_basis: number | null;
-    iso_currency_code: string | null;
-    unofficial_currency_code: string | null;
-    synced_at: string;
+    cost_basis_per_share: number | null;
+    current_price: number | null;
+    current_value: number | null;
+    unrealized_pnl: number | null;
+    unrealized_pnl_pct: number | null;
+    last_price_at: string | null;
+    created_at: string;
+    updated_at: string;
 }
 
 const parseList = (value: string | undefined, fallback: string): string[] =>
@@ -59,6 +57,55 @@ const countryCodesFromEnv = (): CountryCode[] =>
     parseList(process.env.PLAID_COUNTRY_CODES, 'US').map(
         (c) => (CountryCode as Record<string, CountryCode>)[c] ?? (c as CountryCode),
     );
+
+// account_type and asset_class in the existing schema are CHECK-constrained
+// enums. Plaid's vocabulary is wider, so map common cases and fall back.
+const ACCOUNT_TYPE_MAP: Record<string, string> = {
+    brokerage: 'brokerage',
+    'non-taxable brokerage account': 'brokerage',
+    ira: 'ira',
+    'sep ira': 'ira',
+    'simple ira': 'ira',
+    roth: 'roth_ira',
+    'roth 401k': 'roth_ira',
+    '401k': '401k',
+    '401a': '401k',
+    '403b': '401k',
+    '457b': '401k',
+    'thrift savings plan': '401k',
+    pension: '401k',
+    'crypto exchange': 'crypto',
+    'non-custodial wallet': 'crypto',
+    'cash management': 'cash',
+    cd: 'cash',
+    'money market': 'cash',
+};
+
+const ASSET_CLASS_MAP: Record<string, string> = {
+    equity: 'equity',
+    etf: 'etf',
+    'mutual fund': 'mutual_fund',
+    'fixed income': 'bond',
+    derivative: 'option',
+    cash: 'cash',
+    cryptocurrency: 'crypto',
+};
+
+function mapAccountType(subtype: AccountSubtype | string | null | undefined): string {
+    if (!subtype) return 'other';
+    return ACCOUNT_TYPE_MAP[String(subtype).toLowerCase()] ?? 'other';
+}
+
+function mapAssetClass(securityType: string | null | undefined): string {
+    if (!securityType) return 'other';
+    return ASSET_CLASS_MAP[securityType.toLowerCase()] ?? 'other';
+}
+
+const safeDivide = (numerator: number | null, denominator: number | null): number | null => {
+    if (numerator == null || denominator == null) return null;
+    if (denominator === 0) return null;
+    return numerator / denominator;
+};
 
 export async function createLinkToken(userId: string): Promise<LinkTokenCreateResponse> {
     const request: LinkTokenCreateRequest = {
@@ -98,36 +145,35 @@ export async function exchangePublicToken(args: {
     const accountsResp = await plaidClient.accountsGet({ access_token: accessToken });
     const item = accountsResp.data.item;
 
-    const institution: { institution_id: string | null; name: string | null } = {
-        institution_id: item.institution_id ?? null,
-        name: null,
-    };
+    let institutionName = 'Unknown Institution';
     if (item.institution_id) {
         try {
             const inst = await plaidClient.institutionsGetById({
                 institution_id: item.institution_id,
                 country_codes: countryCodesFromEnv(),
             });
-            institution.name = inst.data.institution.name;
+            institutionName = inst.data.institution.name;
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             console.warn('[plaid] institutionsGetById failed:', message);
         }
     }
 
+    const nowIso = new Date().toISOString();
     const rows = accountsResp.data.accounts.map((account) => ({
         user_id: userId,
-        plaid_item_id: itemId,
         plaid_account_id: account.account_id,
+        plaid_item_id: itemId,
         plaid_access_token: accessToken,
-        institution_id: institution.institution_id,
-        institution_name: institution.name,
-        name: account.name,
-        official_name: account.official_name,
-        mask: account.mask,
-        type: account.type,
-        subtype: account.subtype,
-        updated_at: new Date().toISOString(),
+        institution_name: institutionName,
+        account_name: account.name ?? account.official_name ?? 'Account',
+        account_type: mapAccountType(account.subtype),
+        currency:
+            account.balances.iso_currency_code ??
+            account.balances.unofficial_currency_code ??
+            'USD',
+        is_active: true,
+        synced_at: nowIso,
     }));
 
     const { data, error } = await supabase
@@ -161,40 +207,66 @@ export async function syncHoldings(args: {
 
     const { data: dbAccounts, error: lookupError } = await supabase
         .from('accounts')
-        .select('id, plaid_account_id')
+        .select('id, user_id, plaid_account_id')
         .eq('plaid_item_id', itemId);
 
     if (lookupError)
         throw new Error(`Supabase accounts lookup failed: ${lookupError.message}`);
 
-    const accountIdByPlaidId = new Map<string, string>(
-        ((dbAccounts ?? []) as Array<{ id: string; plaid_account_id: string }>).map(
-            (a) => [a.plaid_account_id, a.id],
-        ),
+    const accountByPlaidId = new Map<string, { id: string; user_id: string }>(
+        (
+            (dbAccounts ?? []) as Array<{
+                id: string;
+                user_id: string;
+                plaid_account_id: string;
+            }>
+        ).map((a) => [a.plaid_account_id, { id: a.id, user_id: a.user_id }]),
     );
 
     const rows = holdings
         .map((holding) => {
             const security = securityById.get(holding.security_id);
-            const accountId = accountIdByPlaidId.get(holding.account_id);
-            if (!accountId) return null;
+            const account = accountByPlaidId.get(holding.account_id);
+            if (!account) return null;
+
+            // symbol is NOT NULL in the schema. Plaid omits ticker for some
+            // exotic securities, so fall back to cusip / isin / security_id.
+            const symbol =
+                security?.ticker_symbol ??
+                security?.cusip ??
+                security?.isin ??
+                holding.security_id;
+
+            const costBasis = holding.cost_basis ?? null;
+            const quantity = holding.quantity;
+            const currentPrice = holding.institution_price ?? null;
+            const currentValue = holding.institution_value ?? null;
+
+            const costBasisPerShare =
+                costBasis != null && quantity > 0 ? costBasis / quantity : null;
+            const unrealizedPnl =
+                currentValue != null && costBasis != null
+                    ? currentValue - costBasis
+                    : null;
+            const unrealizedPnlPct = safeDivide(
+                unrealizedPnl != null ? unrealizedPnl * 100 : null,
+                costBasis,
+            );
+
             return {
-                account_id: accountId,
-                plaid_account_id: holding.account_id,
-                security_id: holding.security_id,
-                ticker_symbol: security?.ticker_symbol ?? null,
-                name: security?.name ?? null,
-                type: security?.type ?? null,
-                cusip: security?.cusip ?? null,
-                isin: security?.isin ?? null,
-                quantity: holding.quantity,
-                institution_price: holding.institution_price,
-                institution_price_as_of: holding.institution_price_as_of,
-                institution_value: holding.institution_value,
-                cost_basis: holding.cost_basis,
-                iso_currency_code: holding.iso_currency_code,
-                unofficial_currency_code: holding.unofficial_currency_code,
-                synced_at: new Date().toISOString(),
+                user_id: account.user_id,
+                account_id: account.id,
+                symbol,
+                security_name: security?.name ?? null,
+                asset_class: mapAssetClass(security?.type),
+                quantity,
+                cost_basis: costBasis,
+                cost_basis_per_share: costBasisPerShare,
+                current_price: currentPrice,
+                current_value: currentValue,
+                unrealized_pnl: unrealizedPnl,
+                unrealized_pnl_pct: unrealizedPnlPct,
+                last_price_at: holding.institution_price_as_of ?? null,
             };
         })
         .filter((row): row is NonNullable<typeof row> => row !== null);
@@ -203,15 +275,25 @@ export async function syncHoldings(args: {
 
     const { data, error } = await supabase
         .from('holdings')
-        .upsert(rows, { onConflict: 'plaid_account_id,security_id' })
+        .upsert(rows, { onConflict: 'account_id,symbol' })
         .select();
 
     if (error) throw new Error(`Supabase holdings upsert failed: ${error.message}`);
+
+    const accountIds = Array.from(new Set(rows.map((r) => r.account_id)));
+    if (accountIds.length > 0) {
+        await supabase
+            .from('accounts')
+            .update({ synced_at: new Date().toISOString() })
+            .in('id', accountIds);
+    }
 
     return { count: data?.length ?? 0, holdings: (data ?? []) as HoldingRow[], accounts };
 }
 
 export async function syncHoldingsForItem(itemId: string): Promise<SyncResult> {
+    // plaid_access_token is column-level revoked from anon/authenticated; only
+    // the service-role key used here can read it.
     const { data, error } = await supabase
         .from('accounts')
         .select('plaid_access_token')
