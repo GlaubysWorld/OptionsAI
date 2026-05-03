@@ -248,10 +248,18 @@ export async function syncHoldings(args: {
                 currentValue != null && costBasis != null
                     ? currentValue - costBasis
                     : null;
-            const unrealizedPnlPct = safeDivide(
+            const unrealizedPnlPctRaw = safeDivide(
                 unrealizedPnl != null ? unrealizedPnl * 100 : null,
                 costBasis,
             );
+            // holdings.unrealized_pnl_pct is numeric(10,4), so 999,999.9999 is
+            // the max representable value. Plaid sandbox occasionally returns
+            // tiny cost_basis values that produce overflowing percentages; in
+            // those cases we drop to null rather than crash the whole upsert.
+            const unrealizedPnlPct =
+                unrealizedPnlPctRaw != null && Math.abs(unrealizedPnlPctRaw) <= 999_999.9999
+                    ? unrealizedPnlPctRaw
+                    : null;
 
             return {
                 user_id: account.user_id,
