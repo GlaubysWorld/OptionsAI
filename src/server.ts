@@ -6,9 +6,34 @@ import {
     exchangePublicToken,
     syncHoldingsForItem,
 } from './plaidService.js';
+import { createUserClient } from './supabaseClient.js';
 
 const app = express();
 app.use(express.json());
+
+// Columns from public.accounts that authenticated/anon are granted SELECT on.
+// plaid_access_token is intentionally excluded — only service_role can read it.
+const ACCOUNT_PUBLIC_COLUMNS = [
+    'id',
+    'user_id',
+    'plaid_account_id',
+    'plaid_item_id',
+    'institution_name',
+    'account_name',
+    'account_type',
+    'currency',
+    'is_active',
+    'synced_at',
+    'created_at',
+    'updated_at',
+].join(', ');
+
+function extractBearerToken(req: Request): string | null {
+    const header = req.header('authorization') ?? req.header('Authorization');
+    if (!header) return null;
+    const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+    return match ? match[1] : null;
+}
 
 interface PlaidErrorLike {
     message?: string;
@@ -71,6 +96,54 @@ app.post('/plaid/holdings/sync', async (req: Request, res: Response) => {
         return res.json(result);
     } catch (err) {
         console.error('[holdings/sync]', (err as PlaidErrorLike)?.response?.data ?? err);
+        return res.status(500).json(errorPayload(err));
+    }
+});
+
+app.get('/accounts', async (req: Request, res: Response) => {
+    const jwt = extractBearerToken(req);
+    if (!jwt) return res.status(401).json({ error: 'Authorization bearer token required' });
+
+    try {
+        const supa = createUserClient(jwt);
+        const { data, error } = await supa
+            .from('accounts')
+            .select(ACCOUNT_PUBLIC_COLUMNS)
+            .order('created_at', { ascending: true });
+
+        if (error) {
+            console.error('[GET /accounts]', error);
+            const status = error.code === 'PGRST301' || error.code === '401' ? 401 : 500;
+            return res.status(status).json({ error: error.message });
+        }
+        return res.json({ accounts: data ?? [] });
+    } catch (err) {
+        console.error('[GET /accounts]', err);
+        return res.status(500).json(errorPayload(err));
+    }
+});
+
+app.get('/holdings', async (req: Request, res: Response) => {
+    const jwt = extractBearerToken(req);
+    if (!jwt) return res.status(401).json({ error: 'Authorization bearer token required' });
+
+    try {
+        const supa = createUserClient(jwt);
+        const { data, error } = await supa
+            .from('holdings')
+            .select(
+                '*, account:accounts!inner(institution_name, account_type)',
+            )
+            .order('current_value', { ascending: false, nullsFirst: false });
+
+        if (error) {
+            console.error('[GET /holdings]', error);
+            const status = error.code === 'PGRST301' || error.code === '401' ? 401 : 500;
+            return res.status(status).json({ error: error.message });
+        }
+        return res.json({ holdings: data ?? [] });
+    } catch (err) {
+        console.error('[GET /holdings]', err);
         return res.status(500).json(errorPayload(err));
     }
 });

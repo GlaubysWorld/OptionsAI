@@ -55,6 +55,51 @@ Calls `investments/holdings/get` for the item and upserts each holding into
 
 Response: `{ "count": <n>, "holdings": [...], "accounts": [...] }`
 
+### `GET /accounts`
+Returns the signed-in user's linked accounts. Reads as the user via the
+Supabase anon key + the request's `Authorization: Bearer <jwt>`; RLS
+filters to the user's rows and column-level grants keep
+`plaid_access_token` out of the response entirely.
+
+```
+GET /accounts
+Authorization: Bearer <user-jwt>
+```
+
+Response: `{ "accounts": [ { id, plaid_account_id, plaid_item_id, institution_name, account_name, account_type, currency, is_active, synced_at, ... }, ... ] }`
+
+### `GET /holdings`
+Returns the signed-in user's holdings inner-joined to their account row,
+with each holding carrying `account.institution_name` and
+`account.account_type`. Auth model is the same as `/accounts`.
+
+```
+GET /holdings
+Authorization: Bearer <user-jwt>
+```
+
+Response:
+```json
+{
+  "holdings": [
+    {
+      "id": "...",
+      "symbol": "AAPL",
+      "security_name": "...",
+      "asset_class": "equity",
+      "quantity": 10,
+      "current_price": 175,
+      "current_value": 1750,
+      "unrealized_pnl": 250,
+      "unrealized_pnl_pct": 16.6667,
+      "account": { "institution_name": "...", "account_type": "brokerage" }
+    }
+  ]
+}
+```
+
+Both GET endpoints return 401 if the bearer token is missing or invalid.
+
 ## Client flow
 
 1. Call `POST /plaid/link-token` and pass `link_token` to Plaid Link.
