@@ -1,0 +1,53 @@
+{
+  "household": "Synthetic example household",
+  "cases": [
+    {
+      "id": "1",
+      "title": "Cash flow gap",
+      "calc": "cashFlowGap",
+      "input": { "annualSpend": 240000, "netTakeHome": 180000 },
+      "expect": { "gap": 60000 }
+    },
+    {
+      "id": "2",
+      "title": "Portfolio needed to retire",
+      "calc": "retirementTarget",
+      "input": { "netSpend": 240000, "grossSpend": 300000, "drawRate": 0.04 },
+      "expect": { "portfolioNeeded": 7500000 }
+    },
+    {
+      "id": "4",
+      "title": "Pension lump vs annuity",
+      "calc": "lumpVsAnnuity",
+      "input": { "lumpSum": 800000, "annualAnnuity": 40000 },
+      "expect": { "impliedYield": 0.05 }
+    },
+    {
+      "id": "12",
+      "title": "Monthly housing carry",
+      "calc": "monthlyCarry",
+      "input": { "debt": 900000, "rate": 0.06, "annualPropertyTax": 18000, "monthlyInsurance": 300 },
+      "expect": { "total": 6300 }
+    },
+    {
+      "id": "A1",
+      "title": "Detects a no-buy side that forgot current home equity",
+      "calc": "compareScenarios",
+      "input": {
+        "a": { "name": "buy", "preDecisionNetWorth": 400000, "home": { "value": 1200000, "appreciation": 0.02, "saleCostRate": 0.06, "debtAtExit": 800000 }, "extraAnnualDraw": 20000 },
+        "b": { "name": "stay", "preDecisionNetWorth": 0 },
+        "years": 7,
+        "portfolioReturn": 0.06
+      },
+      "expectFinding": "ASYMMETRIC_SCENARIOS",
+      "expect": { "delta": null }
+    },
+    {
+      "id": "A4",
+      "title": "Detects a rate that doesn't match its spread",
+      "calc": "checkRateFormula",
+      "input": { "statedRate": 0.05, "index": 0.04, "spread": 0.02, "label": "Credit line" },
+      "expectFinding": "RATE_FORMULA_MISMATCH"
+    }
+  ]
+}
