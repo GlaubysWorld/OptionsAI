@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# Real household data never leaves the machine.
+fixtures/*.local.json
