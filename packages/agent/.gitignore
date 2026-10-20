@@ -1,0 +1,4 @@
+node_modules/
+# Real household data and run outputs never leave the machine.
+households/*.local.json
+runs/
