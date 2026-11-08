@@ -81,7 +81,7 @@ export function accountReturns(input: AdvisorRoiInput): ReturnsResult {
   const fees = advisorFees(input);
   const findings: Finding[] = [];
   for (const f of flows.filter((x) => x.approximate)) {
-    findings.push({ code: "APPROXIMATE_INPUT", severity: "warn", message: `${f.label} on ${f.date} is estimated.`, details: { ...f } });
+    findings.push({ code: "APPROXIMATE_INPUT", severity: "warn", message: `Estimated input: ${f.label} (${f.date}).`, details: { ...f } });
   }
 
   const intervals: IntervalReturn[] = [];

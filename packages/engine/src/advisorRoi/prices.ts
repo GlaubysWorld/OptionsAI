@@ -25,3 +25,16 @@ export function adjustedReturn(table: PriceTable, symbol: string, from: string, 
 export function latestPriceDate(table: PriceTable): string {
   return Object.values(table).reduce((m, s) => (s.dates.length && s.dates[s.dates.length - 1]! > m ? s.dates[s.dates.length - 1]! : m), "");
 }
+
+/** Unadjusted close on or before `date` (to value shares that day), or null. */
+export function closePrice(table: PriceTable, symbol: string, date: string): number | null {
+  const s = table[symbol];
+  if (!s?.close || s.dates.length < MIN_POINTS) return null;
+  let lo = 0, hi = s.dates.length - 1, found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (s.dates[mid]! <= date) { found = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  const v = found < 0 ? null : s.close[found]!;
+  return v !== null && Number.isFinite(v) ? v : null;
+}

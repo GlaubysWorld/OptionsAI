@@ -65,6 +65,8 @@ export interface TransitionWindow {
 export interface PriceSeries {
   dates: string[];
   adj: number[];
+  /** Unadjusted closes, used to value shares on a given day. */
+  close?: number[];
 }
 export type PriceTable = Record<string, PriceSeries>;
 
