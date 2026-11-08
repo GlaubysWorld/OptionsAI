@@ -1,9 +1,11 @@
 import {
-    AccountSubtype,
+    AccountBase,
     CountryCode,
+    Holding,
     LinkTokenCreateRequest,
     LinkTokenCreateResponse,
     Products,
+    Security,
 } from 'plaid';
 import { plaidClient } from './plaidClient.js';
 import { supabase } from './supabaseClient.js';
@@ -11,10 +13,11 @@ import { supabase } from './supabaseClient.js';
 interface AccountRow {
     id: string;
     user_id: string;
-    plaid_account_id: string | null;
     plaid_item_id: string | null;
-    institution_name: string;
-    account_name: string;
+    plaid_account_id: string | null;
+    plaid_access_token: string | null;
+    institution_name: string | null;
+    account_name: string | null;
     account_type: string;
     currency: string;
     is_active: boolean;
@@ -42,6 +45,46 @@ interface HoldingRow {
     updated_at: string;
 }
 
+const normalize = (s: string | null | undefined): string =>
+    (s ?? '').toString().toLowerCase().replace(/\s+/g, '_');
+
+function mapAccountType(account: AccountBase): string {
+    const subtype = normalize(account.subtype);
+    if (subtype === '401k') return '401k';
+    if (subtype === 'roth' || subtype === 'roth_ira') return 'roth_ira';
+    if (subtype === 'ira') return 'ira';
+    if (subtype === 'brokerage') return 'brokerage';
+    if (subtype === 'crypto_exchange' || subtype === 'crypto') return 'crypto';
+
+    const type = normalize(account.type);
+    if (type === 'investment') return 'brokerage';
+    if (type === 'depository') return 'cash';
+    return 'other';
+}
+
+function mapAssetClass(security: Security | undefined): string {
+    const t = normalize(security?.type);
+    if (t === 'equity') return 'equity';
+    if (t === 'etf') return 'etf';
+    if (t === 'mutual_fund') return 'mutual_fund';
+    if (t === 'fixed_income' || t === 'bond') return 'bond';
+    if (t === 'derivative' || t === 'option') return 'option';
+    if (t === 'cryptocurrency' || t === 'crypto') return 'crypto';
+    if (t === 'cash') return 'cash';
+    return 'other';
+}
+
+// Plaid securities don't always have a ticker. The DB requires a non-null
+// `symbol`, so fall back to CUSIP / ISIN / security_id in that order.
+function resolveSymbol(security: Security | undefined, holding: Holding): string {
+    return (
+        security?.ticker_symbol?.trim() ||
+        security?.cusip ||
+        security?.isin ||
+        holding.security_id
+    );
+}
+
 const parseList = (value: string | undefined, fallback: string): string[] =>
     (value ?? fallback)
         .split(',')
@@ -57,55 +100,6 @@ const countryCodesFromEnv = (): CountryCode[] =>
     parseList(process.env.PLAID_COUNTRY_CODES, 'US').map(
         (c) => (CountryCode as Record<string, CountryCode>)[c] ?? (c as CountryCode),
     );
-
-// account_type and asset_class in the existing schema are CHECK-constrained
-// enums. Plaid's vocabulary is wider, so map common cases and fall back.
-const ACCOUNT_TYPE_MAP: Record<string, string> = {
-    brokerage: 'brokerage',
-    'non-taxable brokerage account': 'brokerage',
-    ira: 'ira',
-    'sep ira': 'ira',
-    'simple ira': 'ira',
-    roth: 'roth_ira',
-    'roth 401k': 'roth_ira',
-    '401k': '401k',
-    '401a': '401k',
-    '403b': '401k',
-    '457b': '401k',
-    'thrift savings plan': '401k',
-    pension: '401k',
-    'crypto exchange': 'crypto',
-    'non-custodial wallet': 'crypto',
-    'cash management': 'cash',
-    cd: 'cash',
-    'money market': 'cash',
-};
-
-const ASSET_CLASS_MAP: Record<string, string> = {
-    equity: 'equity',
-    etf: 'etf',
-    'mutual fund': 'mutual_fund',
-    'fixed income': 'bond',
-    derivative: 'option',
-    cash: 'cash',
-    cryptocurrency: 'crypto',
-};
-
-function mapAccountType(subtype: AccountSubtype | string | null | undefined): string {
-    if (!subtype) return 'other';
-    return ACCOUNT_TYPE_MAP[String(subtype).toLowerCase()] ?? 'other';
-}
-
-function mapAssetClass(securityType: string | null | undefined): string {
-    if (!securityType) return 'other';
-    return ASSET_CLASS_MAP[securityType.toLowerCase()] ?? 'other';
-}
-
-const safeDivide = (numerator: number | null, denominator: number | null): number | null => {
-    if (numerator == null || denominator == null) return null;
-    if (denominator === 0) return null;
-    return numerator / denominator;
-};
 
 export async function createLinkToken(userId: string): Promise<LinkTokenCreateResponse> {
     const request: LinkTokenCreateRequest = {
@@ -145,7 +139,7 @@ export async function exchangePublicToken(args: {
     const accountsResp = await plaidClient.accountsGet({ access_token: accessToken });
     const item = accountsResp.data.item;
 
-    let institutionName = 'Unknown Institution';
+    let institutionName: string | null = null;
     if (item.institution_id) {
         try {
             const inst = await plaidClient.institutionsGetById({
@@ -159,21 +153,19 @@ export async function exchangePublicToken(args: {
         }
     }
 
-    const nowIso = new Date().toISOString();
+    const now = new Date().toISOString();
     const rows = accountsResp.data.accounts.map((account) => ({
         user_id: userId,
-        plaid_account_id: account.account_id,
         plaid_item_id: itemId,
+        plaid_account_id: account.account_id,
         plaid_access_token: accessToken,
         institution_name: institutionName,
-        account_name: account.name ?? account.official_name ?? 'Account',
-        account_type: mapAccountType(account.subtype),
-        currency:
-            account.balances.iso_currency_code ??
-            account.balances.unofficial_currency_code ??
-            'USD',
+        account_name: account.official_name ?? account.name ?? null,
+        account_type: mapAccountType(account),
+        currency: account.balances?.iso_currency_code ?? 'USD',
         is_active: true,
-        synced_at: nowIso,
+        synced_at: now,
+        updated_at: now,
     }));
 
     const { data, error } = await supabase
@@ -213,60 +205,41 @@ export async function syncHoldings(args: {
     if (lookupError)
         throw new Error(`Supabase accounts lookup failed: ${lookupError.message}`);
 
-    const accountByPlaidId = new Map<string, { id: string; user_id: string }>(
-        (
-            (dbAccounts ?? []) as Array<{
-                id: string;
-                user_id: string;
-                plaid_account_id: string;
-            }>
-        ).map((a) => [a.plaid_account_id, { id: a.id, user_id: a.user_id }]),
+    type DbAccount = { id: string; user_id: string; plaid_account_id: string | null };
+    const accountByPlaidId = new Map<string, DbAccount>(
+        ((dbAccounts ?? []) as DbAccount[])
+            .filter((a) => a.plaid_account_id)
+            .map((a) => [a.plaid_account_id as string, a]),
     );
 
+    const now = new Date().toISOString();
     const rows = holdings
         .map((holding) => {
             const security = securityById.get(holding.security_id);
             const account = accountByPlaidId.get(holding.account_id);
             if (!account) return null;
 
-            // symbol is NOT NULL in the schema. Plaid omits ticker for some
-            // exotic securities, so fall back to cusip / isin / security_id.
-            const symbol =
-                security?.ticker_symbol ??
-                security?.cusip ??
-                security?.isin ??
-                holding.security_id;
-
-            const costBasis = holding.cost_basis ?? null;
-            const quantity = holding.quantity;
+            const quantity = holding.quantity ?? 0;
             const currentPrice = holding.institution_price ?? null;
-            const currentValue = holding.institution_value ?? null;
-
+            const currentValue =
+                holding.institution_value ??
+                (currentPrice != null ? quantity * currentPrice : null);
+            const costBasis = holding.cost_basis ?? null;
             const costBasisPerShare =
-                costBasis != null && quantity > 0 ? costBasis / quantity : null;
+                costBasis != null && quantity ? costBasis / quantity : null;
             const unrealizedPnl =
                 currentValue != null && costBasis != null
                     ? currentValue - costBasis
                     : null;
-            const unrealizedPnlPctRaw = safeDivide(
-                unrealizedPnl != null ? unrealizedPnl * 100 : null,
-                costBasis,
-            );
-            // holdings.unrealized_pnl_pct is numeric(10,4), so 999,999.9999 is
-            // the max representable value. Plaid sandbox occasionally returns
-            // tiny cost_basis values that produce overflowing percentages; in
-            // those cases we drop to null rather than crash the whole upsert.
             const unrealizedPnlPct =
-                unrealizedPnlPctRaw != null && Math.abs(unrealizedPnlPctRaw) <= 999_999.9999
-                    ? unrealizedPnlPctRaw
-                    : null;
+                unrealizedPnl != null && costBasis ? (unrealizedPnl / costBasis) * 100 : null;
 
             return {
                 user_id: account.user_id,
                 account_id: account.id,
-                symbol,
+                symbol: resolveSymbol(security, holding),
                 security_name: security?.name ?? null,
-                asset_class: mapAssetClass(security?.type),
+                asset_class: mapAssetClass(security),
                 quantity,
                 cost_basis: costBasis,
                 cost_basis_per_share: costBasisPerShare,
@@ -274,7 +247,10 @@ export async function syncHoldings(args: {
                 current_value: currentValue,
                 unrealized_pnl: unrealizedPnl,
                 unrealized_pnl_pct: unrealizedPnlPct,
-                last_price_at: holding.institution_price_as_of ?? null,
+                last_price_at: holding.institution_price_as_of
+                    ? new Date(holding.institution_price_as_of).toISOString()
+                    : null,
+                updated_at: now,
             };
         })
         .filter((row): row is NonNullable<typeof row> => row !== null);
@@ -288,24 +264,15 @@ export async function syncHoldings(args: {
 
     if (error) throw new Error(`Supabase holdings upsert failed: ${error.message}`);
 
-    const accountIds = Array.from(new Set(rows.map((r) => r.account_id)));
-    if (accountIds.length > 0) {
-        await supabase
-            .from('accounts')
-            .update({ synced_at: new Date().toISOString() })
-            .in('id', accountIds);
-    }
-
     return { count: data?.length ?? 0, holdings: (data ?? []) as HoldingRow[], accounts };
 }
 
 export async function syncHoldingsForItem(itemId: string): Promise<SyncResult> {
-    // plaid_access_token is column-level revoked from anon/authenticated; only
-    // the service-role key used here can read it.
     const { data, error } = await supabase
         .from('accounts')
         .select('plaid_access_token')
         .eq('plaid_item_id', itemId)
+        .not('plaid_access_token', 'is', null)
         .limit(1)
         .maybeSingle();
 
