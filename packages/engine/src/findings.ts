@@ -13,7 +13,10 @@ export type FindingCode =
   | "RATE_FORMULA_MISMATCH" // A4
   | "WRONG_TAX_RATE_KIND" // A5
   | "STALE_VALUE"
-  | "MISSING_VALUE";
+  | "MISSING_VALUE"
+  | "RECONCILIATION_MISMATCH" // rebuilt holdings disagree with a statement
+  | "UNPRICED" // a security has no usable price history
+  | "APPROXIMATE_INPUT"; // an input was estimated, not observed
 
 export type Severity = "block" | "warn";
 

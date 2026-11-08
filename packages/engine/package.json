@@ -10,10 +10,12 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "advisor-roi": "tsx scripts/advisor-roi.ts"
   },
   "devDependencies": {
     "@types/node": "^22.19.1",
+    "tsx": "^4.23.15",
     "typescript": "^5.6.3",
     "vitest": "^2.1.8"
   }
