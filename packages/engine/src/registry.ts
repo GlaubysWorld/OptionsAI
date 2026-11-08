@@ -23,6 +23,8 @@ import { costOfADollar } from "./costOfADollar.js";
 import { stressGrid, sensitivity } from "./stress.js";
 import { Ledger, type LedgerEntry, type ResolveOptions } from "./ledger.js";
 import type { Finding } from "./findings.js";
+import { runAdvisorRoi } from "./advisorRoi/check.js";
+import type { AdvisorRoiInput } from "./advisorRoi/types.js";
 
 export type CalcOutput = Record<string, unknown> & { findings: Finding[] };
 
@@ -66,6 +68,7 @@ export const CALCS: Record<string, Fn> = {
     const cells = stressGrid(i.base, i.returns, i.draws, i.floorReal);
     return withFindings({ cells, breakingCells: cells.filter((c) => c.breaks).length });
   },
+  advisorRoi: (i: AdvisorRoiInput) => runAdvisorRoi(i) as unknown as CalcOutput,
   sensitivity: (i: { base: ProjectionInput; bump?: number }) => {
     const rows = sensitivity(i.base, i.bump);
     return withFindings({ rows, mostSensitive: rows[0]?.input ?? null });

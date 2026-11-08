@@ -12,4 +12,5 @@ export * from "./stress.js";
 export * from "./costOfADollar.js";
 export * from "./retirementAccounts.js";
 export * from "./ledger.js";
+export * as advisorRoi from "./advisorRoi/index.js";
 export * from "./registry.js";
