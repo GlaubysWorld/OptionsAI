@@ -1,0 +1,34 @@
+{
+  "household": "Synthetic example: the Rivera household",
+  "asOf": "2026-04-15",
+  "context": {
+    "decision": "Whether to sell our current house and buy a larger one before the kids reach high school, and how to pay for it.",
+    "goals": [
+      "Retire early and move closer to family",
+      "Keep spending roughly where it is",
+      "Leave something meaningful for the kids"
+    ],
+    "people": ["Sam (runs the finances)", "Jordan (wants the bigger house)", "CPA", "Realtor"],
+    "notes": ["The new house would be sold when we move at retirement."]
+  },
+  "ledger": [
+    { "key": "spend.annual", "label": "Annual household spend", "value": 240000, "sourceType": "stated", "sourceRef": "chat:2026-03-01", "asOf": "2026-03-01" },
+    { "key": "income.net_take_home", "label": "Net annual take-home pay", "value": 190000, "sourceType": "document", "sourceRef": "doc:paystub-2026-03.pdf", "asOf": "2026-03-31" },
+    { "key": "home.current.value", "label": "Current home estimated value", "value": 900000, "sourceType": "estimated", "sourceRef": "realtor-cma", "asOf": "2026-04-01" },
+    { "key": "home.current.debt", "label": "Current mortgage payoff", "value": 350000, "sourceType": "document", "sourceRef": "doc:payoff-letter.pdf", "asOf": "2026-04-05" },
+    { "key": "home.target.price", "label": "Target home price", "value": 1400000, "sourceType": "stated", "sourceRef": "chat:2026-04-12", "asOf": "2026-04-12" },
+    { "key": "home.target.above_grade_sqft", "label": "Target home above-grade square feet", "value": 3800, "sourceType": "document", "sourceRef": "doc:listing.pdf", "asOf": "2026-04-10" },
+    { "key": "home.target.property_tax_annual", "label": "Target home annual property tax", "value": 24000, "sourceType": "document", "sourceRef": "doc:listing.pdf", "asOf": "2026-04-10" },
+    { "key": "home.target.insurance_monthly", "label": "Target home monthly insurance", "value": 350, "sourceType": "document", "sourceRef": "doc:insurance-quote.pdf", "asOf": "2026-04-11" },
+    { "key": "comps.per_sqft_low", "label": "Comp range low ($/sqft)", "value": 350, "sourceType": "document", "sourceRef": "doc:comps.pdf", "asOf": "2026-04-10" },
+    { "key": "comps.per_sqft_high", "label": "Comp range high ($/sqft)", "value": 390, "sourceType": "document", "sourceRef": "doc:comps.pdf", "asOf": "2026-04-10" },
+    { "key": "debt.new_loan.balance_after_purchase", "label": "New loan balance after purchase", "value": 900000, "sourceType": "stated", "sourceRef": "chat:2026-04-12", "asOf": "2026-04-12" },
+    { "key": "debt.new_loan.rate", "label": "New loan rate", "value": 0.062, "sourceType": "document", "sourceRef": "doc:rate-quote.pdf", "asOf": "2026-04-12" },
+    { "key": "portfolio.extra_annual_draw_if_buy", "label": "Extra yearly portfolio draw if we buy", "value": 25000, "sourceType": "stated", "sourceRef": "chat:2026-04-12", "asOf": "2026-04-12" },
+    { "key": "plan.age_now", "label": "Sam's age", "value": 44, "sourceType": "stated", "sourceRef": "profile", "asOf": "2026-01-01" },
+    { "key": "plan.exit_age", "label": "Age we plan to sell and move", "value": 54, "sourceType": "stated", "sourceRef": "chat:2026-03-01", "asOf": "2026-03-01" },
+    { "key": "assumptions.portfolio_return", "label": "Assumed portfolio return", "value": 0.07, "sourceType": "stated", "sourceRef": "planning-assumptions", "asOf": "2026-01-01" },
+    { "key": "assumptions.home_appreciation", "label": "Assumed home appreciation", "value": 0.02, "sourceType": "estimated", "sourceRef": "planning-assumptions", "asOf": "2026-01-01" },
+    { "key": "assumptions.sale_cost_rate", "label": "Assumed home sale costs", "value": 0.06, "sourceType": "estimated", "sourceRef": "planning-assumptions", "asOf": "2026-01-01" }
+  ]
+}
