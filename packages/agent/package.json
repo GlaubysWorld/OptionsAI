@@ -8,7 +8,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "journey": "tsx src/cli.ts"
+    "journey": "tsx src/cli.ts",
+    "advisor-roi-chat": "tsx src/advisorRoi/chat.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.136.0",
