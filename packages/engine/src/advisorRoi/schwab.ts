@@ -66,17 +66,17 @@ export function parseSchwabTransactions(csv: string): Txn[] {
 export function parsePriceCsv(csv: string): PriceTable {
   const [header, ...rows] = parseCsv(csv);
   if (!header) return {};
-  const di = header.indexOf("date"), si = header.indexOf("symbol"), ai = header.indexOf("adjclose");
-  const tmp: Record<string, [string, number][]> = {};
+  const di = header.indexOf("date"), si = header.indexOf("symbol"), ai = header.indexOf("adjclose"), ci = header.indexOf("close");
+  const tmp: Record<string, [string, number, number][]> = {};
   for (const r of rows) {
-    const s = r[si]!, d = r[di]!, a = Number(r[ai]);
+    const s = r[si]!, d = r[di]!, a = Number(r[ai]), c = ci >= 0 ? Number(r[ci]) : NaN;
     if (!Number.isFinite(a)) continue;
-    (tmp[s] ??= []).push([d, a]);
+    (tmp[s] ??= []).push([d, a, c]);
   }
   const table: PriceTable = {};
   for (const [s, pts] of Object.entries(tmp)) {
     pts.sort((x, y) => (x[0] < y[0] ? -1 : 1));
-    table[s] = { dates: pts.map((p) => p[0]), adj: pts.map((p) => p[1]) };
+    table[s] = { dates: pts.map((p) => p[0]), adj: pts.map((p) => p[1]), ...(ci >= 0 ? { close: pts.map((p) => p[2]) } : {}) };
   }
   return table;
 }

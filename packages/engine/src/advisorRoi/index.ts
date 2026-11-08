@@ -5,3 +5,5 @@ export * from "./replay.js";
 export * from "./returns.js";
 export * from "./trades.js";
 export * from "./check.js";
+export * from "./schwabStatement.js";
+export * from "./build.js";

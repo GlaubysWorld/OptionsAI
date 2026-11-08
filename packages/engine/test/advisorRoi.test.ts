@@ -29,7 +29,7 @@ describe("Schwab adapter", () => {
   });
   it("parses a price file", () => {
     const p = parsePriceCsv("date,symbol,close,adjclose\n2026-01-02,X,10,9.5\n2026-01-01,X,10,9\n");
-    expect(p.X).toEqual({ dates: ["2026-01-01", "2026-01-02"], adj: [9, 9.5] });
+    expect(p.X).toEqual({ dates: ["2026-01-01", "2026-01-02"], adj: [9, 9.5], close: [10, 10] });
   });
 });
 
